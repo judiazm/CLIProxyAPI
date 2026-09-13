@@ -156,6 +156,11 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 		return nil, errResolvePluginsDir
 	}
 
+	// Resolve the optional local model catalog overlay path.
+	if errResolveModelsFile := cfg.ResolveModelsFile(); errResolveModelsFile != nil {
+		log.Warnf("failed to resolve models-file path %q, using it as written: %v", cfg.ModelsFile, errResolveModelsFile)
+	}
+
 	// Sanitize Gemini API key configuration and migrate legacy entries.
 	cfg.SanitizeGeminiKeys()
 
