@@ -238,6 +238,29 @@ computed in Go from the row's latencies when the bucket is ≤ 50k rows; otherwi
 Errors: 400 with `{"error": "…"}` for bad parameters; 503 `{"error": "usage store disabled"}` when
 the store is off.
 
+### Details the spec left open, as implemented
+
+- The time window is half-open: `ts_ms >= from AND ts_ms < to`.
+- `tz` formats every timestamp in a response, not only bucket keys: `from`/`to`, `first_at`/
+  `last_at`, `oldest`/`newest`, and the `ts` of each `requests` row.
+- `week` buckets start on Monday. `day`, `hour`, `week` and `month` bucket boundaries are computed
+  in Go in `tz`, so they stay correct across DST transitions.
+- `stream` and `failed` group keys are emitted as JSON booleans; every other non-time group key is
+  the stored string.
+- `latency_ms_avg` and `ttft_ms_avg` are plain means over every row in the group, rounded to two
+  decimals. Rows with a zero TTFT (non-streaming requests) are included in the TTFT mean.
+- `latency_ms_p95` is the nearest-rank percentile, and is `null` for a group of more than 50 000
+  rows.
+- `group_by` accepts a repeated parameter as well as a comma list. A repeated column is a 400.
+- `order_by` accepts a group column that is not in `group_by`; those rows all compare equal and
+  keep their insertion order.
+- A `limit` above the documented maximum is clamped to it; a non-positive or non-numeric `limit`
+  is a 400.
+- `next_before` is the last returned row id when the page came back full, otherwise `null`.
+- `meta` omits empty strings from each dimension list, and `size_bytes` is the size of the main
+  database file, excluding the `-wal` and `-shm` sidecars.
+- All three endpoints, `meta` included, answer 503 while the store is disabled.
+
 Tests: plugin writes a record and `summary` grouped by `api_key,model` returns it; filters and
 `day` bucketing with a non-UTC `tz`; `requests` cursor pagination; retention prune deletes old rows.
 Use a temp-file database in tests.
