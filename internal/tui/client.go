@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 )
 
 // Client wraps HTTP calls to the management API.
@@ -259,11 +261,12 @@ func (c *Client) GetAPIKeys() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var result []string
-	if err := json.Unmarshal(raw, &result); err != nil {
+	// Entries are plain strings, or objects carrying per-key settings such as allowed-models.
+	var entries config.APIKeyEntries
+	if err := json.Unmarshal(raw, &entries); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return entries.Values(), nil
 }
 
 // AddAPIKey adds a new API key by sending old=nil, new=key which appends.

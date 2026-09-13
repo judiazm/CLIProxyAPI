@@ -35,11 +35,19 @@ remote-management:
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
 
-# API keys for authentication
+# API keys for authentication.
+# An entry is either a plain key string (the key sees every model) or an object with
+# `api-key` plus `allowed-models`, which limits both the model lists that key is served
+# and the models it may request. Patterns use the same wildcards as `excluded-models`
+# and are matched against model IDs as listed, credential prefix included.
 api-keys:
   - "your-api-key-1"
   - "your-api-key-2"
   - "your-api-key-3"
+#  - api-key: "codex-client-key"
+#    allowed-models:
+#      - "gpt-*"
+#      - "natacha/*"
 
 # Enable debug logging
 debug: false
