@@ -146,6 +146,16 @@ usage-statistics-enabled: false
 # Default: 60. Max: 3600.
 redis-usage-queue-retention-seconds: 60
 
+# Persistent usage store. When enabled, every usage record (client API key, model,
+# credential, token breakdown incl. cache read/write, latency, TTFT, failure) is written to
+# a local SQLite database, and the management API serves aggregates over it at
+# /v0/management/usage-store/{summary,requests,meta}. Independent of
+# usage-statistics-enabled. Enabling, disabling and path changes take effect on config reload.
+# usage-store:
+#   enabled: true
+#   path: "~/.cli-proxy-api/usage.db"   # default; "~" expands to the home directory
+#   retention-days: 0                   # 0 keeps rows forever; >0 prunes older rows hourly
+
 # Proxy URL. Supports socks5/http/https protocols. Example: socks5://user:pass@192.168.1.1:1080/
 # Per-entry proxy-url also supports "direct" or "none" to bypass both the global proxy-url and environment proxies explicitly.
 proxy-url: ""

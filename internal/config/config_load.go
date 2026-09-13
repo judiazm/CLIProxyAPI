@@ -69,6 +69,7 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.ErrorLogsMaxFiles = 10
 	cfg.UsageStatisticsEnabled = false
 	cfg.RedisUsageQueueRetentionSeconds = 60
+	cfg.UsageStore = UsageStoreConfig{}
 	cfg.DisableCooling = false
 	cfg.SaveCooldownStatus = false
 	cfg.TransientErrorCooldownSeconds = 0
@@ -150,6 +151,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Resolve the optional local model catalog overlay path.
 	if errResolveModelsFile := cfg.ResolveModelsFile(); errResolveModelsFile != nil {
 		log.Warnf("failed to resolve models-file path %q, using it as written: %v", cfg.ModelsFile, errResolveModelsFile)
+	}
+	if errResolveUsageStore := cfg.ResolveUsageStore(); errResolveUsageStore != nil {
+		log.Warnf("failed to resolve usage-store path %q, using it as written: %v", cfg.UsageStore.Path, errResolveUsageStore)
 	}
 
 	// Sanitize Gemini API key configuration and migrate legacy entries.
