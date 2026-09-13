@@ -93,3 +93,135 @@ fails to read, parse or validate leaves the last good overlay in place.
 - Keep upstream style (gofmt, logrus, no log.Fatal). Keep changes out of `internal/translator/`.
 - Each patch is one commit whose message starts with `jd:`.
 - `go build -o /dev/null ./cmd/server && go test ./...` must pass.
+
+### Patch 1 addendum: `label` on the object form
+
+An object entry may carry `label: "mac"` (free text, optional). It has no routing effect. It exists so
+the management panel can name a client key (a device) in usage views without keeping a side table.
+Config get/set must round-trip it like `allowed-models`.
+
+## Patch 3: persistent usage store (`usage-store`)
+
+Problem: every request produces a full usage record (client API key, model, credential, token
+breakdown incl. cache read/write, latency, TTFT, failure) but upstream only holds it in an in-memory
+queue for `redis-usage-queue-retention-seconds` (default 60 s, max 3600). There is no per-key or
+per-model history, so "how much does each device and each model use" cannot be answered from the
+proxy itself.
+
+Change: a usage plugin (`internal/usagestore`) registered on the default usage manager that persists
+every record into a SQLite database, plus three read-only management endpoints that aggregate it.
+SQLite via `modernc.org/sqlite` (pure Go, no cgo). WAL journal mode. One writer goroutine drains a
+buffered channel and inserts in batched transactions (flush every 1 s or 200 rows). Never block the
+request path; if the channel is full, drop the record and log at warn once per minute.
+
+```yaml
+usage-store:
+  enabled: true                            # default false
+  path: "~/.cli-proxy-api/usage.db"        # default; "~" expands
+  retention-days: 0                        # 0 = keep forever; >0 prunes rows older than N days hourly
+```
+
+Hot reload: enabling/disabling and path changes take effect on config reload (close and reopen).
+`usage-statistics-enabled` is independent: the store records whenever `usage-store.enabled` is true.
+
+### Table `usage_requests`
+
+One row per record. Columns (all NOT NULL unless noted; strings default ''):
+
+| column | type | source |
+|---|---|---|
+| id | INTEGER PK autoincrement | |
+| ts_ms | INTEGER | `record.RequestedAt` (or now) as unix ms |
+| api_key | TEXT | `record.APIKey` (the client key, full value, same as `/usage-queue`) |
+| model | TEXT | `record.Model` |
+| alias | TEXT | `record.Alias` |
+| auth_id | TEXT | `record.AuthID` |
+| auth_index | TEXT | `record.AuthIndex` |
+| provider | TEXT | `record.Provider` |
+| auth_type | TEXT | `record.AuthType` |
+| executor_type | TEXT | `record.ExecutorType` |
+| endpoint | TEXT | same resolver the redisqueue plugin uses |
+| request_id | TEXT | logging request id from ctx |
+| session_id | TEXT | normalized like redisqueue plugin |
+| parent_session_id | TEXT | |
+| reasoning_effort | TEXT | resolved like redisqueue plugin |
+| service_tier | TEXT | |
+| response_service_tier | TEXT | |
+| stream | INTEGER 0/1 | |
+| generate | INTEGER 0/1 | |
+| failed | INTEGER 0/1 | resolved like redisqueue plugin (record.Failed OR ctx not success) |
+| status_code | INTEGER | fail status code, 0 when not failed |
+| latency_ms | INTEGER | |
+| ttft_ms | INTEGER | |
+| input_tokens | INTEGER | from `EnsureTokenBreakdownForProvider(record.Detail, …)` |
+| output_tokens | INTEGER | |
+| reasoning_tokens | INTEGER | |
+| cached_tokens | INTEGER | |
+| cache_read_tokens | INTEGER | |
+| cache_creation_tokens | INTEGER | |
+| total_tokens | INTEGER | |
+| client_ip | TEXT | client request metadata |
+| user_agent | TEXT | |
+
+Indexes: `(ts_ms)`, `(api_key, ts_ms)`, `(model, ts_ms)`, `(auth_id, ts_ms)`. Do not store the
+failure body or response headers.
+
+Verify while implementing (and record the answer here): what `record.AuthID` and `record.AuthIndex`
+contain for file-based OAuth credentials. The panel maps `auth_id` to the auth-file list, so if
+`AuthID` is not the file name, also store whichever field is (add a column `auth_file` if needed).
+
+### Endpoints (management auth, same middleware as the rest of `/v0/management`)
+
+Common query parameters:
+- `from`, `to`: RFC3339 or unix milliseconds. Default `to` = now, `from` = `to` − 24 h.
+- `tz`: IANA zone for `day`/`hour` bucketing, default `UTC`.
+- Filters, each repeatable (OR within a parameter, AND across parameters): `api_key`, `model`,
+  `alias`, `auth_id`, `provider`, `auth_type`, `session_id`, `reasoning_effort`, `endpoint`,
+  `failed` (`true`/`false`, single), `stream` (`true`/`false`, single).
+
+`GET /v0/management/usage-store/summary`
+- `group_by`: comma list, 0–3 of: `api_key`, `model`, `alias`, `auth_id`, `provider`, `auth_type`,
+  `endpoint`, `session_id`, `reasoning_effort`, `service_tier`, `stream`, `failed`, `day`, `hour`,
+  `week`, `month`. Empty = one totals row.
+- `order_by`: any metric name below or any group column; default `total_tokens`. `order`: `asc|desc`
+  (default `desc`). `limit`: default 500, max 5000.
+- Response:
+
+```json
+{
+  "from": "2026-09-12T00:00:00Z", "to": "2026-09-13T00:00:00Z", "tz": "UTC",
+  "group_by": ["api_key", "model"],
+  "rows": [
+    {
+      "keys": {"api_key": "sk-…", "model": "gpt-5.6-sol"},
+      "requests": 120, "failed": 2,
+      "input_tokens": 0, "cache_read_tokens": 0, "cache_creation_tokens": 0, "cached_tokens": 0,
+      "output_tokens": 0, "reasoning_tokens": 0, "total_tokens": 0,
+      "latency_ms_avg": 0, "latency_ms_p95": 0, "ttft_ms_avg": 0,
+      "first_at": "…", "last_at": "…"
+    }
+  ],
+  "totals": { "requests": 0, "failed": 0, "...same metrics..." : 0 }
+}
+```
+`day`/`hour`/`week`/`month` keys are emitted as the bucket start in RFC3339 in `tz`. p95 may be
+computed in Go from the row's latencies when the bucket is ≤ 50k rows; otherwise omit (null).
+
+`GET /v0/management/usage-store/requests`
+- Filters as above, plus `limit` (default 200, max 2000) and `before` (row id cursor). Ordered by
+  `ts_ms DESC, id DESC`.
+- Response: `{"rows": [ {every column of usage_requests with `ts` as RFC3339 instead of ts_ms} ],
+  "next_before": <id or null>}`.
+
+`GET /v0/management/usage-store/meta`
+- Response: `{"enabled": true, "path": "…", "retention_days": 0, "rows": n, "oldest": "…"|null,
+  "newest": "…"|null, "size_bytes": n, "dimensions": {"api_key": [...], "model": [...],
+  "alias": [...], "auth_id": [...], "provider": [...], "auth_type": [...], "reasoning_effort": [...],
+  "endpoint": [...]}}` where each dimension lists distinct values seen in the last 90 days.
+
+Errors: 400 with `{"error": "…"}` for bad parameters; 503 `{"error": "usage store disabled"}` when
+the store is off.
+
+Tests: plugin writes a record and `summary` grouped by `api_key,model` returns it; filters and
+`day` bucketing with a non-UTC `tz`; `requests` cursor pagination; retention prune deletes old rows.
+Use a temp-file database in tests.
