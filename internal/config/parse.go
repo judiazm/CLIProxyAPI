@@ -28,6 +28,7 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	cfg.ErrorLogsMaxFiles = 10
 	cfg.UsageStatisticsEnabled = false
 	cfg.RedisUsageQueueRetentionSeconds = 60
+	cfg.UsageStore = UsageStoreConfig{}
 	cfg.DisableCooling = false
 	cfg.SaveCooldownStatus = false
 	cfg.TransientErrorCooldownSeconds = 0
@@ -103,6 +104,9 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	}
 	if errResolveModelsFile := cfg.ResolveModelsFile(); errResolveModelsFile != nil {
 		log.Warnf("failed to resolve models-file path %q, using it as written: %v", cfg.ModelsFile, errResolveModelsFile)
+	}
+	if errResolveUsageStore := cfg.ResolveUsageStore(); errResolveUsageStore != nil {
+		log.Warnf("failed to resolve usage-store path %q, using it as written: %v", cfg.UsageStore.Path, errResolveUsageStore)
 	}
 
 	// Apply the same sanitization pipeline.
