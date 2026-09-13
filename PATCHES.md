@@ -166,9 +166,25 @@ One row per record. Columns (all NOT NULL unless noted; strings default ''):
 Indexes: `(ts_ms)`, `(api_key, ts_ms)`, `(model, ts_ms)`, `(auth_id, ts_ms)`. Do not store the
 failure body or response headers.
 
-Verify while implementing (and record the answer here): what `record.AuthID` and `record.AuthIndex`
-contain for file-based OAuth credentials. The panel maps `auth_id` to the auth-file list, so if
-`AuthID` is not the file name, also store whichever field is (add a column `auth_file` if needed).
+### What `auth_id` and `auth_index` contain (verified)
+
+`UsageReporter` copies `AuthID` straight from `auth.ID` and `AuthIndex` from `auth.EnsureIndex()`
+(`internal/runtime/executor/helps/usage_helpers.go`).
+
+- **`auth_id` is the auth file name.** For a file-based OAuth credential the watcher synthesizer
+  sets `Auth.ID` to the path of the JSON file relative to the auth dir, extension included, e.g.
+  `codex-foo@bar.com.json` (`internal/watcher/synthesizer/file.go`; `sdk/auth/filestore.go` uses
+  the same rule and additionally sets `Auth.FileName` to it). A credential in a subdirectory of the
+  auth dir yields a relative path with separators; a file outside the auth dir falls back to its
+  absolute path; on Windows the value is lowercased. **No `auth_file` column is needed.** The one
+  exception is credentials that never came from a file: an auth registered without an ID is given a
+  UUID (`sdk/cliproxy/auth/conductor_lifecycle.go`), which is what config-derived API-key auths and
+  some plugin auths carry.
+- **`auth_index` is not a number.** It is `hex(sha256(seed)[:8])`, 16 lowercase hex characters,
+  where the seed for a file-based credential is `"<auth type>:<absolute file path>"`
+  (`stableAuthIndex` / `indexSeed` in `sdk/cliproxy/auth/types.go`). It is stable for a given file
+  at a given absolute path, is not reversible to a name, and changes if the file moves. Treat it as
+  an opaque credential fingerprint; use `auth_id` for anything the panel displays.
 
 ### Endpoints (management auth, same middleware as the rest of `/v0/management`)
 
