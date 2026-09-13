@@ -17,9 +17,10 @@ import (
 //	  - "plain-key"                       # string form: the key sees every model
 //	  - api-key: "codex-client-key"       # object form
 //	    allowed-models: ["gpt-*"]         # wildcards, same matcher as excluded-models
+//	    label: "mac"                      # optional free text, no routing effect
 //
 // An entry written as a plain string is marshalled back as a plain string, so configs that
-// never use `allowed-models` are byte-for-byte unchanged.
+// use neither `allowed-models` nor `label` are byte-for-byte unchanged.
 type APIKeyEntry struct {
 	// APIKey is the client key presented as a bearer token, x-api-key, x-goog-api-key or query key.
 	APIKey string `yaml:"api-key" json:"api-key"`
@@ -28,6 +29,10 @@ type APIKeyEntry struct {
 	// Patterns support '*' wildcards and are matched against model IDs as they are listed,
 	// including any credential prefix (for example "natacha/gpt-6-astra").
 	AllowedModels []string `yaml:"allowed-models,omitempty" json:"allowed-models,omitempty"`
+
+	// Label is optional free text naming the client this key belongs to, such as a device.
+	// It has no routing effect; the management panel uses it to name a key in usage views.
+	Label string `yaml:"label,omitempty" json:"label,omitempty"`
 }
 
 // APIKeyEntries is the top-level `api-keys` list.
@@ -38,9 +43,11 @@ type APIKeyEntries []APIKeyEntry
 type apiKeyEntryFields struct {
 	APIKey        string   `yaml:"api-key" json:"api-key"`
 	AllowedModels []string `yaml:"allowed-models,omitempty" json:"allowed-models,omitempty"`
+	Label         string   `yaml:"label,omitempty" json:"label,omitempty"`
 }
 
-// UnmarshalYAML accepts either a scalar key or an object with `api-key` and `allowed-models`.
+// UnmarshalYAML accepts either a scalar key or an object with `api-key`, `allowed-models`
+// and `label`.
 func (e *APIKeyEntry) UnmarshalYAML(value *yaml.Node) error {
 	if e == nil || value == nil {
 		return nil
@@ -52,6 +59,7 @@ func (e *APIKeyEntry) UnmarshalYAML(value *yaml.Node) error {
 		}
 		e.APIKey = key
 		e.AllowedModels = nil
+		e.Label = ""
 		return nil
 	}
 	var fields apiKeyEntryFields
@@ -60,15 +68,21 @@ func (e *APIKeyEntry) UnmarshalYAML(value *yaml.Node) error {
 	}
 	e.APIKey = fields.APIKey
 	e.AllowedModels = fields.AllowedModels
+	e.Label = fields.Label
 	return nil
 }
 
 // MarshalYAML writes the plain string form unless the entry carries per-key settings.
 func (e APIKeyEntry) MarshalYAML() (any, error) {
-	if len(e.AllowedModels) == 0 {
+	if !e.hasSettings() {
 		return e.APIKey, nil
 	}
-	return apiKeyEntryFields{APIKey: e.APIKey, AllowedModels: e.AllowedModels}, nil
+	return apiKeyEntryFields{APIKey: e.APIKey, AllowedModels: e.AllowedModels, Label: e.Label}, nil
+}
+
+// hasSettings reports whether the entry needs the object form.
+func (e APIKeyEntry) hasSettings() bool {
+	return len(e.AllowedModels) > 0 || strings.TrimSpace(e.Label) != ""
 }
 
 // UnmarshalJSON accepts either a JSON string or an object, mirroring the YAML forms.
@@ -80,12 +94,14 @@ func (e *APIKeyEntry) UnmarshalJSON(data []byte) error {
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		e.APIKey = ""
 		e.AllowedModels = nil
+		e.Label = ""
 		return nil
 	}
 	var key string
 	if errString := json.Unmarshal(trimmed, &key); errString == nil {
 		e.APIKey = key
 		e.AllowedModels = nil
+		e.Label = ""
 		return nil
 	}
 	var fields apiKeyEntryFields
@@ -94,15 +110,16 @@ func (e *APIKeyEntry) UnmarshalJSON(data []byte) error {
 	}
 	e.APIKey = fields.APIKey
 	e.AllowedModels = fields.AllowedModels
+	e.Label = fields.Label
 	return nil
 }
 
 // MarshalJSON writes the plain string form unless the entry carries per-key settings.
 func (e APIKeyEntry) MarshalJSON() ([]byte, error) {
-	if len(e.AllowedModels) == 0 {
+	if !e.hasSettings() {
 		return json.Marshal(e.APIKey)
 	}
-	return json.Marshal(apiKeyEntryFields{APIKey: e.APIKey, AllowedModels: e.AllowedModels})
+	return json.Marshal(apiKeyEntryFields{APIKey: e.APIKey, AllowedModels: e.AllowedModels, Label: e.Label})
 }
 
 // NewAPIKeyEntries builds plain-string entries for the supplied keys.
