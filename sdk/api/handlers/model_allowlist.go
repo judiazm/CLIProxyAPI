@@ -135,7 +135,17 @@ func modelMatchCandidates(modelName string) []string {
 	for _, candidate := range append([]string(nil), candidates...) {
 		add(thinking.ParseSuffix(candidate).ModelName)
 	}
-	return candidates
+	// A cloaked ID (a non-Claude model disguised under a claude-* name for Claude
+	// clients) must only match through its real ID; otherwise every disguised
+	// model satisfies a "claude-*" allowlist.
+	filtered := candidates[:0]
+	for _, candidate := range candidates {
+		if claudemodels.ResolveClaudeModelIDPrefix(candidate) != candidate {
+			continue
+		}
+		filtered = append(filtered, candidate)
+	}
+	return filtered
 }
 
 // applyModelListAllowlist drops model entries the caller's key may not use from a model-list

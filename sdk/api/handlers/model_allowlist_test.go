@@ -281,3 +281,23 @@ func equalStrings(got, want []string) bool {
 	}
 	return true
 }
+
+func TestModelMatchesAllowListIgnoresCloakedClaudeID(t *testing.T) {
+	// Codex models are served to Claude clients under a cloaked claude-* ID; the
+	// allowlist must see through the disguise in both directions.
+	cloaked := claudemodels.EnsureClaudeModelIDPrefix("gpt-5.6-sol")
+	if modelMatchesAllowList(cloaked, []string{"claude-*"}) {
+		t.Fatalf("cloaked %q must not satisfy claude-*", cloaked)
+	}
+	if !modelMatchesAllowList(cloaked, []string{"gpt-*"}) {
+		t.Fatalf("cloaked %q must satisfy gpt-* through its real ID", cloaked)
+	}
+	prefixed := claudemodels.EnsureClaudeModelIDPrefix("natacha/gpt-5.6-sol")
+	if modelMatchesAllowList(prefixed, []string{"gpt-*"}) {
+		t.Fatalf("cloaked %q must not satisfy gpt-* (prefixed)", prefixed)
+	}
+	if !modelMatchesAllowList(prefixed, []string{"natacha/*"}) {
+		t.Fatalf("cloaked %q must satisfy natacha/*", prefixed)
+	}
+}
+
