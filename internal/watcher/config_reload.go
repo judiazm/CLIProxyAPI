@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"os"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
@@ -132,6 +133,10 @@ func (w *Watcher) reloadConfig() bool {
 		} else {
 			log.Debugf("no material config field changes detected")
 		}
+	}
+
+	if oldConfig == nil || strings.TrimSpace(oldConfig.ModelsFile) != strings.TrimSpace(newConfig.ModelsFile) {
+		w.syncModelOverlay(newConfig.ModelsFile)
 	}
 
 	authDirChanged := oldConfig == nil || oldConfig.AuthDir != newConfig.AuthDir
