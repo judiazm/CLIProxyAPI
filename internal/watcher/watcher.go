@@ -38,6 +38,9 @@ type Watcher struct {
 	authRescanMu      sync.Mutex
 	configReloadMu    sync.Mutex
 	configReloadTimer *time.Timer
+	modelOverlayMu    sync.Mutex
+	modelOverlayTimer *time.Timer
+	modelsFilePath    string // Local model catalog overlay path; guarded by clientsMutex.
 	serverUpdateMu    sync.Mutex
 	serverUpdateTimer *time.Timer
 	serverUpdateLast  time.Time
@@ -145,6 +148,7 @@ func (w *Watcher) Stop() error {
 	w.stopped.Store(true)
 	w.stopDispatch()
 	w.stopConfigReloadTimer()
+	w.stopModelOverlayTimer()
 	w.stopServerUpdateTimer()
 	return w.watcher.Close()
 }

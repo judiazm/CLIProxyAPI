@@ -29,7 +29,10 @@ var modelsURLs = []string{
 var embeddedModelsJSON []byte
 
 type modelStore struct {
-	mu   sync.RWMutex
+	mu sync.RWMutex
+	// base holds the catalog exactly as loaded from the embedded file or a remote refresh.
+	base *staticModelsJSON
+	// data holds the effective catalog, i.e. base with the local models-file overlay applied.
 	data *staticModelsJSON
 }
 
@@ -122,13 +125,12 @@ func tryRefreshModels(ctx context.Context, label string) {
 		return
 	}
 
-	// Detect changes before updating store.
-	changed := detectChangedProviders(oldData, parsed)
+	// Update store with new data regardless, re-applying the local overlay so a
+	// refresh never drops locally declared models.
+	effective := storeModelsCatalog(parsed)
 
-	// Update store with new data regardless.
-	modelsCatalogStore.mu.Lock()
-	modelsCatalogStore.data = parsed
-	modelsCatalogStore.mu.Unlock()
+	// Compare the effective catalogs so overlay entries are not reported as changes.
+	changed := detectChangedProviders(oldData, effective)
 
 	if len(changed) == 0 {
 		log.Infof("%s completed from %s, no changes detected", label, url)
@@ -312,10 +314,20 @@ func loadModelsFromBytes(data []byte, source string) error {
 		return fmt.Errorf("%s: validate models catalog: %w", source, err)
 	}
 
-	modelsCatalogStore.mu.Lock()
-	modelsCatalogStore.data = &parsed
-	modelsCatalogStore.mu.Unlock()
+	storeModelsCatalog(&parsed)
 	return nil
+}
+
+// storeModelsCatalog replaces the base catalog and returns the effective catalog,
+// which is the base with the local models-file overlay applied on top.
+func storeModelsCatalog(base *staticModelsJSON) *staticModelsJSON {
+	effective := mergeModelOverlay(base, currentModelOverlay())
+
+	modelsCatalogStore.mu.Lock()
+	modelsCatalogStore.base = base
+	modelsCatalogStore.data = effective
+	modelsCatalogStore.mu.Unlock()
+	return effective
 }
 
 func getModels() *staticModelsJSON {

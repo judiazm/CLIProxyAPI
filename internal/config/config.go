@@ -34,6 +34,13 @@ type Config struct {
 	// AuthDir is the directory where authentication token files are stored.
 	AuthDir string `yaml:"auth-dir" json:"-"`
 
+	// ModelsFile is an optional local model catalog overlay merged on top of the embedded
+	// and remotely refreshed catalogs. The file uses the same per-channel structure as
+	// models.json; an entry whose id already exists replaces that definition, a new id is
+	// appended to its channel. A leading tilde (~) is expanded to the user's home directory.
+	// Empty or absent disables the overlay.
+	ModelsFile string `yaml:"models-file,omitempty" json:"models-file,omitempty"`
+
 	// Debug enables or disables debug-level logging and other debug features.
 	Debug bool `yaml:"debug" json:"debug"`
 

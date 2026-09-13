@@ -41,6 +41,53 @@ registry: an entry whose id already exists replaces the embedded/remote definiti
 to that channel. Missing or unreadable file logs a warning and changes nothing. Add a unit test that a
 new Codex id from the overlay is listed and routable, and one for replacement.
 
+### Overlay file shape
+
+The overlay is a JSON object of per-channel arrays. Channel keys are the ones in the embedded
+`models.json` — `claude`, `gemini`, `vertex`, `aistudio`, `codex-free`, `codex-team`, `codex-plus`,
+`codex-pro`, `kimi`, `antigravity`, `xai` — plus `codex`, a shorthand that applies to all four Codex
+plan tiers so an entry is served whatever plan the credential reports. Channels you do not list are
+left alone. Each entry is a model definition with the same field names as the embedded catalog; `id`
+is the only required field, and everything else follows the entry it stands next to.
+
+Minimal working overlay for the Codex preview model that the upstream catalog omits:
+
+```json
+{
+  "codex": [
+    {
+      "id": "gpt-daybreak-blue-latest",
+      "object": "model",
+      "created": 1770912000,
+      "owned_by": "openai",
+      "type": "openai",
+      "display_name": "Daybreak Blue",
+      "version": "gpt-daybreak-blue",
+      "description": "Codex preview model missing from the upstream catalog.",
+      "context_length": 272000,
+      "max_completion_tokens": 128000,
+      "supported_parameters": ["tools"],
+      "thinking": { "levels": ["low", "medium", "high", "xhigh"] },
+      "supportedInputModalities": ["text", "image"],
+      "supportedOutputModalities": ["text"]
+    }
+  ]
+}
+```
+
+With that file in place and `models-file` pointing at it, `gpt-daybreak-blue-latest` is listed by the
+Codex model accessors, registered for every Codex OAuth credential, and routes instead of failing with
+`unknown provider for model`.
+
+### Implementation notes
+
+The registry keeps the catalog as loaded from the embed or a remote fetch (`modelStore.base`) apart
+from the effective catalog the accessors read (`modelStore.data`), and recomputes the effective catalog
+whenever either input changes. `registry.ApplyModelOverlayFile` sets the path, reloads the file and
+returns the providers whose definitions changed; the watcher feeds that into
+`registry.NotifyModelCatalogChange` so already-registered credentials re-register. An overlay that
+fails to read, parse or validate leaves the last good overlay in place.
+
 ## Rules for both
 
 - Keep upstream style (gofmt, logrus, no log.Fatal). Keep changes out of `internal/translator/`.
