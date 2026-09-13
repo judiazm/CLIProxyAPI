@@ -48,6 +48,8 @@ auth-dir: "~/.cli-proxy-api"
 # `api-key` plus `allowed-models`, which limits both the model lists that key is served
 # and the models it may request. Patterns use the same wildcards as `excluded-models`
 # and are matched against model IDs as listed, credential prefix included.
+# The object form also accepts an optional `label`: free text naming the client the key
+# belongs to, with no routing effect, which the management panel shows in usage views.
 api-keys:
   - "your-api-key-1"
   - "your-api-key-2"
@@ -56,6 +58,7 @@ api-keys:
 #    allowed-models:
 #      - "gpt-*"
 #      - "natacha/*"
+#    label: "mac"
 
 # Enable debug logging
 debug: false

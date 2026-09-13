@@ -152,3 +152,69 @@ func TestAPIKeyEntriesAllowedModelsFor(t *testing.T) {
 		t.Fatal("HasAllowedModels() = true for plain keys, want false")
 	}
 }
+
+func TestAPIKeyEntryLabelRoundTrips(t *testing.T) {
+	data := strings.Join([]string{
+		"api-keys:",
+		"  - plain-key",
+		"  - api-key: labelled-only",
+		"    label: mac",
+		"  - api-key: codex-client-key",
+		"    allowed-models:",
+		`      - "gpt-*"`,
+		"    label: phone",
+		"",
+	}, "\n")
+
+	var cfg SDKConfig
+	if err := yaml.Unmarshal([]byte(data), &cfg); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if len(cfg.APIKeys) != 3 {
+		t.Fatalf("len(APIKeys) = %d, want 3", len(cfg.APIKeys))
+	}
+	if cfg.APIKeys[0].Label != "" {
+		t.Fatalf("APIKeys[0].Label = %q, want empty", cfg.APIKeys[0].Label)
+	}
+	if cfg.APIKeys[1].Label != "mac" || len(cfg.APIKeys[1].AllowedModels) != 0 {
+		t.Fatalf("APIKeys[1] = %#v, want label-only entry", cfg.APIKeys[1])
+	}
+	if cfg.APIKeys[2].Label != "phone" {
+		t.Fatalf("APIKeys[2].Label = %q, want phone", cfg.APIKeys[2].Label)
+	}
+
+	rendered, errYAML := yaml.Marshal(cfg.APIKeys)
+	if errYAML != nil {
+		t.Fatalf("yaml.Marshal() error = %v", errYAML)
+	}
+	wantYAML := strings.Join([]string{
+		"- plain-key",
+		"- api-key: labelled-only",
+		"  label: mac",
+		"- api-key: codex-client-key",
+		"  allowed-models:",
+		"    - gpt-*",
+		"  label: phone",
+		"",
+	}, "\n")
+	if got := string(rendered); got != wantYAML {
+		t.Fatalf("yaml.Marshal() = %q, want %q", got, wantYAML)
+	}
+
+	encoded, errJSON := json.Marshal(cfg.APIKeys)
+	if errJSON != nil {
+		t.Fatalf("json.Marshal() error = %v", errJSON)
+	}
+	wantJSON := `["plain-key",{"api-key":"labelled-only","label":"mac"},{"api-key":"codex-client-key","allowed-models":["gpt-*"],"label":"phone"}]`
+	if got := string(encoded); got != wantJSON {
+		t.Fatalf("json.Marshal() = %s, want %s", got, wantJSON)
+	}
+
+	var decoded APIKeyEntries
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if !reflect.DeepEqual(decoded, cfg.APIKeys) {
+		t.Fatalf("json round-trip = %#v, want %#v", decoded, cfg.APIKeys)
+	}
+}
