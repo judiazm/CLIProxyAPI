@@ -101,6 +101,9 @@ func ParseConfigBytes(data []byte) (*Config, error) {
 	if errResolvePluginsDir := cfg.ResolvePluginsDir(); errResolvePluginsDir != nil && cfg.Plugins.Enabled {
 		return nil, errResolvePluginsDir
 	}
+	if errResolveModelsFile := cfg.ResolveModelsFile(); errResolveModelsFile != nil {
+		log.Warnf("failed to resolve models-file path %q, using it as written: %v", cfg.ModelsFile, errResolveModelsFile)
+	}
 
 	// Apply the same sanitization pipeline.
 	cfg.SanitizeGeminiKeys()
