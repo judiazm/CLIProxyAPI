@@ -72,6 +72,10 @@ type Config struct {
 	// Default: 60. Max: 3600.
 	RedisUsageQueueRetentionSeconds int `yaml:"redis-usage-queue-retention-seconds" json:"redis-usage-queue-retention-seconds"`
 
+	// UsageStore configures the persistent SQLite usage store. It is independent of
+	// UsageStatisticsEnabled: records are persisted whenever UsageStore.Enabled is true.
+	UsageStore UsageStoreConfig `yaml:"usage-store,omitempty" json:"usage-store,omitempty"`
+
 	// DisableCooling disables auth/model cooldown scheduling when true unless a credential or provider overrides it.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
 
