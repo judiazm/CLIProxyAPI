@@ -22,6 +22,9 @@ type PayloadRule = internalconfig.PayloadRule
 type PayloadFilterRule = internalconfig.PayloadFilterRule
 type PayloadModelRule = internalconfig.PayloadModelRule
 
+type APIKeyEntry = internalconfig.APIKeyEntry
+type APIKeyEntries = internalconfig.APIKeyEntries
+
 type GeminiKey = internalconfig.GeminiKey
 type CodexKey = internalconfig.CodexKey
 type XAIKey = internalconfig.XAIKey
@@ -40,6 +43,9 @@ type TLS = internalconfig.TLSConfig
 const (
 	DefaultPanelGitHubRepository = internalconfig.DefaultPanelGitHubRepository
 )
+
+// NewAPIKeyEntries builds plain-string api-keys entries for the supplied keys.
+func NewAPIKeyEntries(keys ...string) APIKeyEntries { return internalconfig.NewAPIKeyEntries(keys...) }
 
 func LoadConfig(configFile string) (*Config, error) { return internalconfig.LoadConfig(configFile) }
 
