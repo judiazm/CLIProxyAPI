@@ -28,6 +28,13 @@ models, and (b) a chat/responses/messages request for a non-matching model is re
 today. Management API config get/set must round-trip the object form; the hot-reload watcher must
 pick up changes. Add unit tests for the matcher, the list filtering, and the request rejection.
 
+### Patch 1 note: cloaked IDs (fixed 2026-09-13)
+
+The Claude-format model list and Claude requests carry non-Claude models under a cloaked
+`claude-fable-5-dd-<reversed id>` name so Claude Code accepts them. The matcher must compare
+patterns against the real ID only; the cloaked form itself never counts as a candidate, or every
+disguised model satisfies `claude-*`. Regression test: `TestModelMatchesAllowListIgnoresCloakedClaudeID`.
+
 ## Patch 2: local model catalog overlay (`models-file`)
 
 Problem: the model catalog is embedded and refreshed from router-for-me/models with hardcoded URLs.
