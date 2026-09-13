@@ -35,6 +35,14 @@ remote-management:
 # Authentication directory (supports ~ for home directory)
 auth-dir: "~/.cli-proxy-api"
 
+# Optional local model catalog overlay (supports ~ for home directory).
+# The file uses the same per-channel structure as the built-in models.json. An entry whose
+# id already exists replaces that definition; a new id is added to the channel. The overlay
+# is re-applied after every remote catalog refresh and whenever the file changes.
+# Besides the models.json channel names, "codex" is accepted as a shorthand for every
+# Codex plan tier (codex-free, codex-team, codex-plus, codex-pro).
+# models-file: "~/cliproxyapi/models.local.json"
+
 # API keys for authentication.
 # An entry is either a plain key string (the key sees every model) or an object with
 # `api-key` plus `allowed-models`, which limits both the model lists that key is served

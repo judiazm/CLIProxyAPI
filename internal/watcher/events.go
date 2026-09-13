@@ -39,6 +39,13 @@ func (w *Watcher) start(ctx context.Context) error {
 	}
 	log.Debugf("watching auth directory: %s", w.authDir)
 
+	w.clientsMutex.RLock()
+	cfg := w.config
+	w.clientsMutex.RUnlock()
+	if cfg != nil {
+		w.syncModelOverlay(cfg.ModelsFile)
+	}
+
 	go w.processEvents(ctx)
 
 	w.reloadClients(true, nil, false)
@@ -73,7 +80,9 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	isConfigEvent := normalizedName == normalizedConfigPath && event.Op&configOps != 0
 	authOps := fsnotify.Create | fsnotify.Write | fsnotify.Remove | fsnotify.Rename
 	isAuthJSON := filepath.Dir(normalizedName) == normalizedAuthDir && strings.HasSuffix(normalizedName, ".json") && event.Op&authOps != 0
-	if !isConfigEvent && !isAuthJSON {
+	normalizedModelsFile := w.normalizeAuthPath(w.currentModelOverlayPath())
+	isModelsFileEvent := normalizedModelsFile != "" && normalizedName == normalizedModelsFile && event.Op&authOps != 0
+	if !isConfigEvent && !isAuthJSON && !isModelsFileEvent {
 		// Ignore unrelated files (e.g., cookie snapshots *.cookie) and other noise.
 		return
 	}
@@ -85,6 +94,13 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	if isConfigEvent {
 		log.Debugf("config file change details - operation: %s, timestamp: %s", event.Op.String(), now.Format("2006-01-02 15:04:05.000"))
 		w.scheduleConfigReload()
+		return
+	}
+
+	// Handle local model catalog overlay changes
+	if isModelsFileEvent {
+		log.Debugf("model overlay file change details - operation: %s, timestamp: %s", event.Op.String(), now.Format("2006-01-02 15:04:05.000"))
+		w.scheduleModelOverlayReload()
 		return
 	}
 
