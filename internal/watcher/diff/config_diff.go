@@ -189,9 +189,10 @@ func BuildConfigChangeDetails(oldCfg, newCfg *config.Config) []string {
 	// API keys (redacted) and counts
 	if len(oldCfg.APIKeys) != len(newCfg.APIKeys) {
 		changes = append(changes, fmt.Sprintf("api-keys count: %d -> %d", len(oldCfg.APIKeys), len(newCfg.APIKeys)))
-	} else if !reflect.DeepEqual(trimStrings(oldCfg.APIKeys), trimStrings(newCfg.APIKeys)) {
+	} else if !reflect.DeepEqual(trimStrings(oldCfg.APIKeys.Values()), trimStrings(newCfg.APIKeys.Values())) {
 		changes = append(changes, "api-keys: values updated (count unchanged, redacted)")
 	}
+	changes = appendAPIKeyAllowedModelChanges(changes, oldCfg.APIKeys, newCfg.APIKeys)
 	if len(oldCfg.GeminiKey) != len(newCfg.GeminiKey) {
 		changes = append(changes, fmt.Sprintf("gemini-api-key count: %d -> %d", len(oldCfg.GeminiKey), len(newCfg.GeminiKey)))
 	} else {
@@ -493,6 +494,23 @@ func trimStrings(in []string) []string {
 		out[i] = strings.TrimSpace(in[i])
 	}
 	return out
+}
+
+// appendAPIKeyAllowedModelChanges reports per-key allowed-models edits. Keys stay redacted:
+// only the entry index and the pattern counts are logged.
+func appendAPIKeyAllowedModelChanges(changes []string, oldKeys, newKeys config.APIKeyEntries) []string {
+	limit := len(oldKeys)
+	if len(newKeys) < limit {
+		limit = len(newKeys)
+	}
+	for i := 0; i < limit; i++ {
+		oldAllowed := SummarizeExcludedModels(oldKeys[i].AllowedModels)
+		newAllowed := SummarizeExcludedModels(newKeys[i].AllowedModels)
+		if oldAllowed.hash != newAllowed.hash {
+			changes = append(changes, fmt.Sprintf("api-keys[%d].allowed-models: updated (%d -> %d entries)", i, oldAllowed.count, newAllowed.count))
+		}
+	}
+	return changes
 }
 
 func appendPayloadConfigChanges(changes []string, oldPayload, newPayload config.PayloadConfig) []string {
