@@ -660,6 +660,10 @@ func (h *BaseAPIHandler) WriteModelListResponse(c *gin.Context, sourceFormat str
 		lifecycle.complete(pluginapi.RequestCompletionSucceeded, http.StatusOK, nil)
 	}
 
+	// Applied last so the catalog the client receives honours the calling key's allowed-models,
+	// including any entries a plugin interceptor added.
+	body = h.applyModelListAllowlist(c, body)
+
 	if c.Writer.Header().Get("Content-Type") == "" {
 		c.Header("Content-Type", "application/json; charset=utf-8")
 	}

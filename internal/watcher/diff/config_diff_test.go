@@ -286,7 +286,7 @@ func TestBuildConfigChangeDetails_NilSafe(t *testing.T) {
 func TestBuildConfigChangeDetails_SecretsAndCounts(t *testing.T) {
 	oldCfg := &config.Config{
 		SDKConfig: sdkconfig.SDKConfig{
-			APIKeys: []string{"a"},
+			APIKeys: config.NewAPIKeyEntries("a"),
 		},
 		RemoteManagement: config.RemoteManagement{
 			SecretKey: "",
@@ -294,7 +294,7 @@ func TestBuildConfigChangeDetails_SecretsAndCounts(t *testing.T) {
 	}
 	newCfg := &config.Config{
 		SDKConfig: sdkconfig.SDKConfig{
-			APIKeys: []string{"a", "b", "c"},
+			APIKeys: config.NewAPIKeyEntries("a", "b", "c"),
 		},
 		RemoteManagement: config.RemoteManagement{
 			SecretKey: "new-secret",
@@ -367,7 +367,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:                 false,
 			ProxyURL:                   "http://old-proxy",
-			APIKeys:                    []string{"key-1"},
+			APIKeys:                    config.NewAPIKeyEntries("key-1"),
 			ForceModelPrefix:           false,
 			NonStreamKeepAliveInterval: 0,
 		},
@@ -411,7 +411,7 @@ func TestBuildConfigChangeDetails_FlagsAndKeys(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:                 true,
 			ProxyURL:                   "http://new-proxy",
-			APIKeys:                    []string{" key-1 ", "key-2"},
+			APIKeys:                    config.NewAPIKeyEntries(" key-1 ", "key-2"),
 			ForceModelPrefix:           true,
 			NonStreamKeepAliveInterval: 5,
 			DisableImageGeneration:     config.DisableImageGenerationAll,
@@ -491,7 +491,7 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog: false,
 			ProxyURL:   "http://old-proxy",
-			APIKeys:    []string{" keyA "},
+			APIKeys:    config.NewAPIKeyEntries(" keyA "),
 		},
 		OAuthExcludedModels: map[string][]string{"p1": {"a"}},
 		OpenAICompatibility: []config.OpenAICompatibility{
@@ -540,7 +540,7 @@ func TestBuildConfigChangeDetails_AllBranches(t *testing.T) {
 		SDKConfig: sdkconfig.SDKConfig{
 			RequestLog:             true,
 			ProxyURL:               "http://new-proxy",
-			APIKeys:                []string{"keyB"},
+			APIKeys:                config.NewAPIKeyEntries("keyB"),
 			DisableImageGeneration: config.DisableImageGenerationAll,
 		},
 		OAuthExcludedModels: map[string][]string{"p1": {"b", "c"}, "p2": {"d"}},
