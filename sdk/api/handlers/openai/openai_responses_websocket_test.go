@@ -6122,6 +6122,7 @@ func TestResponsesWebsocketReplaysImmediatelyAfterPinnedAuthFailure(t *testing.T
 		{name: "unauthorized to http", status: http.StatusUnauthorized, backupWebsocket: false},
 		{name: "rate limit to websocket", status: http.StatusTooManyRequests, backupWebsocket: true},
 		{name: "rate limit to http", status: http.StatusTooManyRequests, backupWebsocket: false},
+		{name: "service unavailable to websocket", status: http.StatusServiceUnavailable, backupWebsocket: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -6230,7 +6231,7 @@ func TestShouldReplayResponsesWebsocketPinnedAuthFailure(t *testing.T) {
 		{name: "unauthorized", err: &interfaces.ErrorMessage{StatusCode: http.StatusUnauthorized}, want: true},
 		{name: "rate limit", err: &interfaces.ErrorMessage{StatusCode: http.StatusTooManyRequests}, want: true},
 		{name: "forbidden", err: &interfaces.ErrorMessage{StatusCode: http.StatusForbidden}, want: false},
-		{name: "service unavailable", err: &interfaces.ErrorMessage{StatusCode: http.StatusServiceUnavailable}, want: false},
+		{name: "service unavailable", err: &interfaces.ErrorMessage{StatusCode: http.StatusServiceUnavailable}, want: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
