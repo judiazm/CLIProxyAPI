@@ -279,7 +279,7 @@ func writeResponsesWebsocketTerminalError(
 
 func shouldReplayResponsesWebsocketPinnedAuthFailure(errMsg *interfaces.ErrorMessage) bool {
 	switch responsesWebsocketErrorStatus(errMsg) {
-	case http.StatusUnauthorized, http.StatusTooManyRequests:
+	case http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusServiceUnavailable:
 		return true
 	default:
 		return false
