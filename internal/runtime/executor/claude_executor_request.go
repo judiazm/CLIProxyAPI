@@ -1531,6 +1531,9 @@ func remapOAuthToolNamesWithBatchedEdits(body []byte, mcpAliases claudeMCPAliasO
 		})
 		recordPassthroughMCPTools(recordRename, forwardMap, passthroughMCPTools)
 	}
+	// Follow-up turns may omit tools[]; preserve caller MCP names still present
+	// in message history before rewriting references.
+	recordPassthroughMCPTools(recordRename, forwardMap, collectPassthroughMCPTools(body, forwardMap))
 
 	rewriteName := func(name string) (string, bool) {
 		if name == "" || protectedNames[name] || helps.IsClaudeMCPToolName(name) {
@@ -1808,6 +1811,7 @@ func remapOAuthToolNamesWithOptionsLegacy(body []byte, mcpAliases claudeMCPAlias
 		})
 		recordPassthroughMCPTools(recordRename, forwardMap, passthroughMCPTools)
 	}
+	recordPassthroughMCPTools(recordRename, forwardMap, collectPassthroughMCPTools(body, forwardMap))
 
 	rewriteName := func(name string) (string, bool) {
 		if name == "" || protectedNames[name] || helps.IsClaudeMCPToolName(name) {
@@ -2054,6 +2058,49 @@ func recordPassthroughMCPTools(recordRename func(original, renamed string), forw
 	for _, name := range passthrough {
 		recordRename(name, name)
 	}
+}
+
+// collectPassthroughMCPTools finds caller-owned MCP names anywhere in the
+// request, including message history. Claude Code may omit tools[] on a
+// follow-up turn while still sending a tool_use/tool_reference from an MCP
+// server. Keeping those names in the request-local identity map prevents a
+// virtual OAuth server collision from treating them as drifted aliases.
+func collectPassthroughMCPTools(body []byte, forwardMap map[string]string) []string {
+	if len(forwardMap) == 0 || !gjson.ValidBytes(body) {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var names []string
+	var walk func(gjson.Result)
+	walk = func(value gjson.Result) {
+		if value.IsObject() {
+			value.ForEach(func(key, child gjson.Result) bool {
+				field := key.String()
+				if (field == "name" || field == "tool_name") && child.Type == gjson.String {
+					name := child.String()
+					if helps.IsClaudeMCPToolName(name) {
+						if _, aliased := forwardMap[name]; !aliased {
+							if _, alreadySeen := seen[name]; !alreadySeen {
+								seen[name] = struct{}{}
+								names = append(names, name)
+							}
+						}
+					}
+				}
+				walk(child)
+				return true
+			})
+			return
+		}
+		if value.IsArray() {
+			value.ForEach(func(_, child gjson.Result) bool {
+				walk(child)
+				return true
+			})
+		}
+	}
+	walk(gjson.ParseBytes(body))
+	return names
 }
 
 func (resolver claudeMCPAliasResolver) resolve(name string) (string, bool, error) {
