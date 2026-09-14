@@ -541,6 +541,26 @@ func TestReverseRemapPassesThroughCallerMCPToolsOnVirtualServerCollision(t *test
 	}
 }
 
+func TestRemapRecordsCallerMCPToolsFromMessageHistory(t *testing.T) {
+	const secret = "virtual-server-history-collision"
+	server := strings.Split(helps.ClaudeMCPToolAlias(secret, "probe", 0), "__")[1]
+	callerTool := "mcp__" + server + "__firecrawl_scrape"
+	body := []byte(fmt.Sprintf(`{"tools":[{"name":"read_file"}],"messages":[{"role":"assistant","content":[{"type":"tool_use","name":%q}]}]}`, callerTool))
+
+	_, reverseMap := remapOAuthToolNamesWithOptions(body, claudeMCPAliasOptions{secret: secret})
+	if got, ok := reverseMap[callerTool]; !ok || got != callerTool {
+		t.Fatalf("reverseMap[%q] = %q, %v; want identity entry", callerTool, got, ok)
+	}
+	response := []byte(fmt.Sprintf(`{"content":[{"type":"tool_use","name":%q}]}`, callerTool))
+	restored, err := reverseRemapOAuthToolNames(response, reverseMap)
+	if err != nil {
+		t.Fatalf("reverseRemapOAuthToolNames() error = %v", err)
+	}
+	if got := gjson.GetBytes(restored, "content.0.name").String(); got != callerTool {
+		t.Fatalf("restored caller tool = %q, want %q", got, callerTool)
+	}
+}
+
 // TestRemapKeepsReverseMapEmptyWhenOnlyCallerMCPToolsArePresent guards the
 // passthrough bookkeeping from turning an untouched request into one that runs
 // the restore path.
