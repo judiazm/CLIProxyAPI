@@ -793,8 +793,9 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 				state := ensureModelState(auth, modelKey)
 				modelState = state
 				resetModelState(state, now)
+				hasActiveModelError := hasModelError(auth, now)
 				updateAggregatedAvailability(auth, now)
-				if !hasModelError(auth, now) {
+				if !hasActiveModelError {
 					auth.LastError = nil
 					auth.StatusMessage = ""
 					auth.Status = StatusActive
@@ -1375,6 +1376,9 @@ func hasModelError(auth *Auth, now time.Time) bool {
 			continue
 		}
 		if state.LastError != nil {
+			if isInactiveTransientModelError(state, now) {
+				continue
+			}
 			return true
 		}
 		if state.Status == StatusError {
@@ -1384,6 +1388,27 @@ func hasModelError(auth *Auth, now time.Time) bool {
 		}
 	}
 	return false
+}
+
+func isInactiveTransientModelError(state *ModelState, now time.Time) bool {
+	if state == nil || state.LastError == nil || state.Status == StatusDisabled {
+		return false
+	}
+	if isCloudflareChallengeResultError(state.LastError) || isInvalidGrantResultError(state.LastError) {
+		return false
+	}
+	if state.Quota.Exceeded && (state.Quota.NextRecoverAt.IsZero() || state.Quota.NextRecoverAt.After(now)) {
+		return false
+	}
+	if state.NextRetryAfter.After(now) || (state.Unavailable && state.NextRetryAfter.IsZero()) {
+		return false
+	}
+	switch statusCodeFromResult(state.LastError) {
+	case 408, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526:
+		return true
+	default:
+		return false
+	}
 }
 
 func clearAuthStateOnSuccess(auth *Auth, now time.Time) {
