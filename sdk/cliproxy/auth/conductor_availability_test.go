@@ -2,11 +2,158 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 )
+
+func TestManagerMarkResultSuccessOnOtherModelClearsOnlyExpiredTransientError(t *testing.T) {
+	tests := []struct {
+		name              string
+		status            int
+		expireCooldown    bool
+		removeDeadline    bool
+		disableState      bool
+		activeQuota       bool
+		message           string
+		wantStatus        Status
+		wantStatusMessage string
+	}{
+		{name: "expired transient", status: http.StatusServiceUnavailable, expireCooldown: true, wantStatus: StatusActive},
+		{name: "active transient", status: http.StatusServiceUnavailable, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "no deadline transient", status: http.StatusServiceUnavailable, removeDeadline: true, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "unauthorized", status: http.StatusUnauthorized, expireCooldown: true, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "quota", status: http.StatusTooManyRequests, expireCooldown: true, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "transient with active quota", status: http.StatusServiceUnavailable, expireCooldown: true, activeQuota: true, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "disabled", status: http.StatusServiceUnavailable, expireCooldown: true, disableState: true, wantStatus: StatusError, wantStatusMessage: "model failure"},
+		{name: "cloudflare challenge", status: http.StatusForbidden, expireCooldown: true, message: "cloudflare challenge", wantStatus: StatusError, wantStatusMessage: "cloudflare challenge"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := NewManager(nil, nil, nil)
+			auth := &Auth{ID: "auth-1", Provider: "codex", Status: StatusActive}
+			if _, errRegister := manager.Register(context.Background(), auth); errRegister != nil {
+				t.Fatalf("register auth: %v", errRegister)
+			}
+
+			message := tt.message
+			if message == "" {
+				message = "model failure"
+			}
+			manager.MarkResult(context.Background(), Result{
+				AuthID:   auth.ID,
+				Provider: auth.Provider,
+				Model:    "model-a",
+				Success:  false,
+				Error:    &Error{HTTPStatus: tt.status, Message: message},
+			})
+
+			manager.mu.Lock()
+			failedState := manager.auths[auth.ID].ModelStates["model-a"]
+			if failedState == nil {
+				manager.mu.Unlock()
+				t.Fatal("failed model state missing")
+			}
+			if tt.expireCooldown {
+				failedState.NextRetryAfter = time.Now().Add(-time.Second)
+				if failedState.Quota.Exceeded {
+					failedState.Quota.NextRecoverAt = time.Now().Add(-time.Second)
+				}
+			}
+			if tt.removeDeadline {
+				failedState.NextRetryAfter = time.Time{}
+			}
+			if tt.disableState {
+				failedState.Status = StatusDisabled
+			}
+			if tt.activeQuota {
+				failedState.Quota = QuotaState{Exceeded: true, Reason: "quota", NextRecoverAt: time.Now().Add(time.Hour)}
+			}
+			manager.mu.Unlock()
+
+			manager.MarkResult(context.Background(), Result{
+				AuthID:   auth.ID,
+				Provider: auth.Provider,
+				Model:    "model-b",
+				Success:  true,
+			})
+
+			updated, ok := manager.GetByID(auth.ID)
+			if !ok || updated == nil {
+				t.Fatal("updated auth missing")
+			}
+			if updated.Status != tt.wantStatus || updated.StatusMessage != tt.wantStatusMessage {
+				t.Fatalf("auth status = %q message %q, want %q message %q", updated.Status, updated.StatusMessage, tt.wantStatus, tt.wantStatusMessage)
+			}
+			if updated.Success != 1 || updated.Failed != 1 {
+				t.Fatalf("auth counters = success %d failed %d, want 1 and 1", updated.Success, updated.Failed)
+			}
+			retained := updated.ModelStates["model-a"]
+			if retained == nil || retained.LastError == nil || retained.StatusMessage != message {
+				t.Fatalf("model diagnostics were not retained: %+v", retained)
+			}
+			if tt.wantStatus == StatusActive {
+				if updated.Unavailable {
+					t.Fatal("auth unavailable after expired transient cooldown")
+				}
+				if !retained.NextRetryAfter.IsZero() {
+					t.Fatalf("expired model retry deadline = %v, want zero", retained.NextRetryAfter)
+				}
+			}
+		})
+	}
+}
+
+func TestManagerMarkResultRepeatedExpiredTransientCyclesStayRecoverable(t *testing.T) {
+	manager := NewManager(nil, nil, nil)
+	auth := &Auth{ID: "auth-1", Provider: "codex", Status: StatusActive}
+	if _, errRegister := manager.Register(context.Background(), auth); errRegister != nil {
+		t.Fatalf("register auth: %v", errRegister)
+	}
+
+	for _, failedModel := range []string{"model-a", "model-c"} {
+		manager.MarkResult(context.Background(), Result{
+			AuthID:   auth.ID,
+			Provider: auth.Provider,
+			Model:    failedModel,
+			Success:  false,
+			Error:    &Error{HTTPStatus: http.StatusServiceUnavailable, Message: "model failure"},
+		})
+
+		manager.mu.Lock()
+		manager.auths[auth.ID].ModelStates[failedModel].NextRetryAfter = time.Now().Add(-time.Second)
+		manager.mu.Unlock()
+
+		manager.MarkResult(context.Background(), Result{
+			AuthID:   auth.ID,
+			Provider: auth.Provider,
+			Model:    "model-b",
+			Success:  true,
+		})
+
+		updated, ok := manager.GetByID(auth.ID)
+		if !ok || updated == nil {
+			t.Fatal("updated auth missing")
+		}
+		if updated.Status != StatusActive || updated.StatusMessage != "" || updated.Unavailable {
+			t.Fatalf("auth status after %s cycle = %q message %q unavailable %v, want active, empty, false", failedModel, updated.Status, updated.StatusMessage, updated.Unavailable)
+		}
+	}
+
+	updated, _ := manager.GetByID(auth.ID)
+	if updated.Success != 2 || updated.Failed != 2 {
+		t.Fatalf("auth counters = success %d failed %d, want 2 and 2", updated.Success, updated.Failed)
+	}
+	for _, model := range []string{"model-a", "model-c"} {
+		state := updated.ModelStates[model]
+		if state == nil || state.LastError == nil || state.StatusMessage != "model failure" {
+			t.Fatalf("model %s diagnostics were not retained: %+v", model, state)
+		}
+	}
+}
 
 func TestUpdateAggregatedAvailability_UnavailableWithoutNextRetryDoesNotBlockAuth(t *testing.T) {
 	t.Parallel()
