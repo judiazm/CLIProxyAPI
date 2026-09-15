@@ -4,6 +4,15 @@ This fork carries a short patch series on branch `jd/patches`, rebased onto each
 Every patch must stay small, self-contained, and documented here so a rebase (scripted, or done by an
 agent when the script hits conflicts) can preserve its intent without reading the whole diff.
 
+## Patch maintenance across upstream updates
+
+An upstream release can change or overwrite local compatibility code. Do not blindly reapply every
+patch on every update. For each release, inspect the upstream diff for an equivalent fix first. If
+the behavior is still absent, carry the local patch forward and run its focused regression tests,
+the required build/test gate, and the deployment readback checks in the fleet runbook. If upstream
+already contains the behavior, drop the duplicate local code while keeping the regression coverage
+when it still protects the supported behavior.
+
 ## Patch 1: per-API-key model allowlist (`allowed-models`)
 
 Problem: the proxy publishes one model catalog to every client key. A Codex client sees Claude models
@@ -95,10 +104,11 @@ returns the providers whose definitions changed; the watcher feeds that into
 `registry.NotifyModelCatalogChange` so already-registered credentials re-register. An overlay that
 fails to read, parse or validate leaves the last good overlay in place.
 
-## Rules for both
+## Rules for local patches
 
 - Keep upstream style (gofmt, logrus, no log.Fatal). Keep changes out of `internal/translator/`.
-- Each patch is one commit whose message starts with `jd:`.
+- Each patch is one small, scoped commit with a clear message (historical commits use `jd:`; newer
+  compatibility commits may use the affected component, such as `fix(claude):`).
 - `go build -o /dev/null ./cmd/server && go test ./...` must pass.
 
 ### Patch 1 addendum: `label` on the object form
@@ -271,3 +281,54 @@ the store is off.
 Tests: plugin writes a record and `summary` grouped by `api_key,model` returns it; filters and
 `day` bucketing with a non-UTC `tz`; `requests` cursor pagination; retention prune deletes old rows.
 Use a temp-file database in tests.
+
+## Patch 4: preserve caller MCP names from Claude follow-up history
+
+Problem: Claude Code follow-up requests can refer to an MCP tool in message history without
+including that tool again in the request's `tools[]` array. When a virtual Claude OAuth MCP server
+has the same deterministic name as the caller's server (for example, `fire_joke`), the proxy could
+then misread the caller's `mcp__fire_joke__firecrawl_scrape` name as a mangled OAuth alias and return
+HTTP 500: `no unique request-local match`.
+
+Change: the Claude request remapper scans the full request JSON, including message history, for MCP
+tool names. It records caller-owned names before reverse restoration and excludes aliases already
+mapped by the request. This keeps caller MCP tools unchanged when a virtual-server namespace
+collision exists and preserves the existing safe rejection for genuinely ambiguous aliases.
+
+Files: `internal/runtime/executor/claude_executor_request.go` and
+`internal/runtime/executor/claude_executor_request_remap_test.go`.
+
+Required regression tests: `TestRemapRecordsCallerMCPToolsFromMessageHistory`,
+`TestReverseRemapPassesThroughCallerMCPToolsOnVirtualServerCollision`,
+`TestRemapKeepsReverseMapEmptyWhenOnlyCallerMCPToolsArePresent`, and
+`TestReverseRemapOAuthToolNamesRejectsUnsafeMangledAliases`. Confirm these tests exist before running
+them; Go exits successfully when a `-run` pattern matches no tests.
+
+Verification: focused remap/reverse-remap tests pass. The fix was deployed to Vostro from source
+commit `bb34469824d37966c5d7fe978c7d1b2ddef98c06`; the live binary SHA-256 is
+`d0b071f596df3c935dbfb602b9530b8324306fd13f299e5e3f497562c064646a`, with a pre-deploy backup.
+The service is active and authenticated `/v1/models` returns 16 Claude models.
+
+Maintenance: on each upstream update, inspect whether upstream now preserves MCP names found in
+message history. Keep this patch only when that behavior is still missing; otherwise remove the
+duplicate code and retain the regression test. In either case, run the focused tests, build and
+deployment readback before declaring the update usable. A separate Claude account quota/rate-limit
+failure can still prevent a live `claude-px --chrome` canary even when this proxy fix is healthy.
+
+## Patch 5: replay pinned Codex conversations after an upstream overload
+
+Problem: a Codex WebSocket conversation pinned to an account could receive an upstream overload
+after that account had accepted earlier turns. The retry decision recognized HTTP 401 and 429,
+but not 503, preventing the existing full-conversation replay path from handling that overload.
+
+Change: `shouldReplayResponsesWebsocketPinnedAuthFailure` also accepts HTTP 503. The existing replay
+path rebuilds the request with conversation history so another eligible account can continue it.
+This does not promise recovery when all eligible accounts or the upstream service are unavailable.
+
+Files: `sdk/api/handlers/openai/openai_responses_websocket_forward.go` and
+`sdk/api/handlers/openai/openai_responses_websocket_test.go`. Vostro source commit:
+`0eb175060eb5f70a87c39f8cd7a13eab35361a23`.
+
+Required regression tests: `TestShouldReplayResponsesWebsocketPinnedAuthFailure` (including the
+service-unavailable case) and `TestResponsesWebsocketReplaysImmediatelyAfterPinnedAuthFailure`.
+Carry this behavior forward until upstream provides equivalent handling.
