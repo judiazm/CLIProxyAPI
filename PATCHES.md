@@ -332,3 +332,24 @@ Files: `sdk/api/handlers/openai/openai_responses_websocket_forward.go` and
 Required regression tests: `TestShouldReplayResponsesWebsocketPinnedAuthFailure` (including the
 service-unavailable case) and `TestResponsesWebsocketReplaysImmediatelyAfterPinnedAuthFailure`.
 Carry this behavior forward until upstream provides equivalent handling.
+
+## Patch 6: clear an expired transient account warning after a successful request
+
+Problem: after a model's temporary overload cooldown expired, its retained `LastError` kept the
+whole account marked as failed even while other models completed requests. The error history was
+being treated as an active restriction.
+
+Change: aggregate status distinguishes inactive transient errors from active failures. A successful
+request on another model can clear the account warning after the temporary restriction ends.
+Model diagnostics and request counters remain available. Active cooldowns, failures without a
+deadline that still block a model, disabled states, authentication failures, active quota, and
+Cloudflare challenges retain their warnings. Previously expired model history must also remain
+inactive across later failure/recovery cycles.
+
+Files: `sdk/cliproxy/auth/conductor_cooldown.go` and
+`sdk/cliproxy/auth/conductor_availability_test.go`. Required regression tests:
+`TestManagerMarkResultSuccessOnOtherModelClearsOnlyExpiredTransientError` and
+`TestManagerMarkResultRepeatedExpiredTransientCyclesStayRecoverable`.
+
+The Vostro updater checks that both tests exist and pass before accepting an update. Keep this
+coverage if upstream later supplies equivalent behavior.
