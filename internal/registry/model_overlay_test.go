@@ -7,6 +7,7 @@ import (
 )
 
 const overlayTestCodexModelID = "gpt-daybreak-blue-latest"
+const overlayTestMetaModelID = "meta-local-test"
 
 const overlayTestCodexJSON = `{
   "codex": [
@@ -28,6 +29,8 @@ const overlayTestCodexJSON = `{
     }
   ]
 }`
+
+const overlayTestMetaJSON = `{"meta": [{"id": "meta-local-test", "object": "model", "owned_by": "meta", "type": "meta", "display_name": "Local Meta Test"}]}`
 
 // writeOverlayFile writes content to a temporary overlay file and returns its path.
 func writeOverlayFile(t *testing.T, content string) string {
@@ -136,6 +139,57 @@ func TestApplyModelOverlayFileReplacesExistingModel(t *testing.T) {
 	// Other Codex tiers must keep the upstream definition.
 	if plus := findModelByID(GetCodexPlusModels(), replacedID); plus == nil || plus.DisplayName == "Locally Pinned 5.5" {
 		t.Fatalf("codex-plus %s = %+v, want the upstream definition", replacedID, plus)
+	}
+}
+
+func TestApplyModelOverlayFileAddsMetaModel(t *testing.T) {
+	restoreModelCatalog(t)
+
+	if found := findModelByID(GetMetaModels(), overlayTestMetaModelID); found != nil {
+		t.Fatalf("%s is already present in the embedded catalog", overlayTestMetaModelID)
+	}
+
+	changed := ApplyModelOverlayFile(writeOverlayFile(t, overlayTestMetaJSON))
+	if len(changed) != 1 || changed[0] != "meta" {
+		t.Fatalf("changed providers = %v, want [meta]", changed)
+	}
+	if model := findModelByID(GetMetaModels(), overlayTestMetaModelID); model == nil || model.DisplayName != "Local Meta Test" {
+		t.Fatalf("meta model = %+v, want the local overlay definition", model)
+	}
+
+	ApplyModelOverlayFile("")
+	if found := findModelByID(GetMetaModels(), overlayTestMetaModelID); found != nil {
+		t.Fatalf("%s remained after clearing the overlay", overlayTestMetaModelID)
+	}
+}
+
+func TestStoreRefreshedModelsCatalogKeepsMetaOverlayOutOfBase(t *testing.T) {
+	restoreModelCatalog(t)
+
+	metaModels := GetMetaModels()
+	if len(metaModels) == 0 {
+		t.Fatal("embedded Meta catalog is empty")
+	}
+	baseModelID := metaModels[0].ID
+
+	ApplyModelOverlayFile(writeOverlayFile(t, overlayTestMetaJSON))
+	refreshed := *getBaseModels()
+	refreshed.Meta = nil
+	storeRefreshedModelsCatalog(&refreshed)
+
+	if findModelByID(GetMetaModels(), overlayTestMetaModelID) == nil {
+		t.Fatalf("%s was dropped by a catalog refresh", overlayTestMetaModelID)
+	}
+	if findModelByID(GetMetaModels(), baseModelID) == nil {
+		t.Fatalf("base Meta model %s was dropped by a catalog refresh", baseModelID)
+	}
+
+	ApplyModelOverlayFile("")
+	if found := findModelByID(GetMetaModels(), overlayTestMetaModelID); found != nil {
+		t.Fatalf("%s was promoted into the base catalog", overlayTestMetaModelID)
+	}
+	if findModelByID(GetMetaModels(), baseModelID) == nil {
+		t.Fatalf("base Meta model %s was dropped after clearing the overlay", baseModelID)
 	}
 }
 

@@ -30,6 +30,7 @@ type modelOverlayJSON struct {
 	Kimi        []*ModelInfo `json:"kimi"`
 	Antigravity []*ModelInfo `json:"antigravity"`
 	XAI         []*ModelInfo `json:"xai"`
+	Meta        []*ModelInfo `json:"meta"`
 }
 
 // overlayStore holds the configured overlay path and the last successfully parsed overlay.
@@ -113,6 +114,7 @@ func mergeModelOverlay(base *staticModelsJSON, overlay *modelOverlayJSON) *stati
 	merged.Kimi = overlayModelInfos(base.Kimi, overlay.Kimi)
 	merged.Antigravity = overlayModelInfos(base.Antigravity, overlay.Antigravity)
 	merged.XAI = overlayModelInfos(base.XAI, overlay.XAI)
+	merged.Meta = overlayModelInfos(base.Meta, overlay.Meta)
 	return &merged
 }
 
@@ -215,6 +217,7 @@ func validateModelOverlay(overlay *modelOverlayJSON) error {
 		{name: "kimi", models: overlay.Kimi},
 		{name: "antigravity", models: overlay.Antigravity},
 		{name: "xai", models: overlay.XAI},
+		{name: "meta", models: overlay.Meta},
 	}
 
 	for _, section := range sections {
