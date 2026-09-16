@@ -205,6 +205,56 @@ func TestStoreRequestsCursorPagination(t *testing.T) {
 	}
 }
 
+func TestStoreRequestsCursorPaginationHandlesOutOfOrderTimestamps(t *testing.T) {
+	store := newTestStore(t, 0)
+	base := time.Date(2026, 9, 12, 10, 0, 0, 0, time.UTC)
+	writeRows(t, store,
+		&Row{TsMs: base.Add(4 * time.Minute).UnixMilli(), RequestID: "newest"},
+		&Row{TsMs: base.Add(time.Minute).UnixMilli(), RequestID: "oldest"},
+		&Row{TsMs: base.Add(3 * time.Minute).UnixMilli(), RequestID: "second"},
+		&Row{TsMs: base.Add(2 * time.Minute).UnixMilli(), RequestID: "third"},
+	)
+
+	filter := Filter{From: base, To: base.Add(time.Hour)}
+	first, errFirst := store.Requests(context.Background(), filter, 2, nil, time.UTC)
+	if errFirst != nil {
+		t.Fatalf("Requests: %v", errFirst)
+	}
+	if len(first.Rows) != 2 || first.Rows[0].RequestID != "newest" || first.Rows[1].RequestID != "second" {
+		t.Fatalf("first page request ids = %v, want [newest second]", requestIDs(first.Rows))
+	}
+	if first.NextBefore == nil {
+		t.Fatal("first page is missing its cursor")
+	}
+
+	second, errSecond := store.Requests(context.Background(), filter, 2, first.NextBefore, time.UTC)
+	if errSecond != nil {
+		t.Fatalf("Requests page 2: %v", errSecond)
+	}
+	if len(second.Rows) != 2 || second.Rows[0].RequestID != "third" || second.Rows[1].RequestID != "oldest" {
+		t.Fatalf("second page request ids = %v, want [third oldest]", requestIDs(second.Rows))
+	}
+	if second.NextBefore == nil {
+		t.Fatal("full second page is missing its cursor")
+	}
+
+	last, errLast := store.Requests(context.Background(), filter, 2, second.NextBefore, time.UTC)
+	if errLast != nil {
+		t.Fatalf("Requests page 3: %v", errLast)
+	}
+	if len(last.Rows) != 0 || last.NextBefore != nil {
+		t.Fatalf("final page = %+v, want no rows and no cursor", last)
+	}
+}
+
+func requestIDs(rows []*Row) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		ids = append(ids, row.RequestID)
+	}
+	return ids
+}
+
 func TestStorePruneOlderThanDeletesExpiredRows(t *testing.T) {
 	store := newTestStore(t, 0)
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
