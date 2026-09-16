@@ -287,6 +287,31 @@ func TestStartFailsWhenConfigMissing(t *testing.T) {
 	}
 }
 
+func TestSyncModelOverlayWatchesParentWhenFileMissing(t *testing.T) {
+	overlayDir := t.TempDir()
+	overlayPath := filepath.Join(overlayDir, "models.local.json")
+	w, err := NewWatcher("", "", nil)
+	if err != nil {
+		t.Fatalf("NewWatcher: %v", err)
+	}
+	t.Cleanup(func() {
+		w.syncModelOverlay("")
+		if errStop := w.Stop(); errStop != nil {
+			t.Errorf("Stop: %v", errStop)
+		}
+	})
+
+	w.syncModelOverlay(overlayPath)
+
+	watched := w.watcher.WatchList()
+	for _, path := range watched {
+		if filepath.Clean(path) == filepath.Clean(overlayDir) {
+			return
+		}
+	}
+	t.Fatalf("model overlay parent %q is not watched: %v", overlayDir, watched)
+}
+
 func TestDispatchRuntimeAuthUpdateEnqueuesAndUpdatesState(t *testing.T) {
 	queue := make(chan AuthUpdate, 4)
 	w := &Watcher{}
