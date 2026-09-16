@@ -61,10 +61,10 @@ new Codex id from the overlay is listed and routable, and one for replacement.
 
 The overlay is a JSON object of per-channel arrays. Channel keys are the ones in the embedded
 `models.json` — `claude`, `gemini`, `vertex`, `aistudio`, `codex-free`, `codex-team`, `codex-plus`,
-`codex-pro`, `kimi`, `antigravity`, `xai` — plus `codex`, a shorthand that applies to all four Codex
-plan tiers so an entry is served whatever plan the credential reports. Channels you do not list are
-left alone. Each entry is a model definition with the same field names as the embedded catalog; `id`
-is the only required field, and everything else follows the entry it stands next to.
+`codex-pro`, `kimi`, `antigravity`, `xai`, `meta` — plus `codex`, a shorthand that applies to all four
+Codex plan tiers so an entry is served whatever plan the credential reports. Channels you do not list
+are left alone. Each entry is a model definition with the same field names as the embedded catalog;
+`id` is the only required field, and everything else follows the entry it stands next to.
 
 Minimal working overlay for the Codex preview model that the upstream catalog omits:
 

@@ -125,13 +125,9 @@ func tryRefreshModels(ctx context.Context, label string) {
 		return
 	}
 
-	if len(parsed.Meta) == 0 && oldData != nil && len(oldData.Meta) > 0 {
-		parsed.Meta = oldData.Meta
-	}
-
 	// Update store with new data regardless, re-applying the local overlay so a
 	// refresh never drops locally declared models.
-	effective := storeModelsCatalog(parsed)
+	effective := storeRefreshedModelsCatalog(parsed)
 
 	// Compare the effective catalogs so overlay entries are not reported as changes.
 	changed := detectChangedProviders(oldData, effective)
@@ -335,10 +331,26 @@ func storeModelsCatalog(base *staticModelsJSON) *staticModelsJSON {
 	return effective
 }
 
+// storeRefreshedModelsCatalog preserves the last base Meta catalog when a remote
+// catalog omits it, then stores the refresh and re-applies the local overlay.
+func storeRefreshedModelsCatalog(refreshed *staticModelsJSON) *staticModelsJSON {
+	base := getBaseModels()
+	if len(refreshed.Meta) == 0 && base != nil && len(base.Meta) > 0 {
+		refreshed.Meta = base.Meta
+	}
+	return storeModelsCatalog(refreshed)
+}
+
 func getModels() *staticModelsJSON {
 	modelsCatalogStore.mu.RLock()
 	defer modelsCatalogStore.mu.RUnlock()
 	return modelsCatalogStore.data
+}
+
+func getBaseModels() *staticModelsJSON {
+	modelsCatalogStore.mu.RLock()
+	defer modelsCatalogStore.mu.RUnlock()
+	return modelsCatalogStore.base
 }
 
 func validateModelsCatalog(data *staticModelsJSON) error {
