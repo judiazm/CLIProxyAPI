@@ -3,6 +3,7 @@
 package watcher
 
 import (
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,9 +12,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// syncModelOverlay points the registry at path, (re)registers the filesystem watch
-// for it, and re-applies the overlay. fsnotify drops a watch when the watched file
-// is replaced, so the watch is added again on every call.
+// syncModelOverlay points the registry at path, watches its parent directory, and
+// re-applies the overlay. Watching the directory keeps creation and atomic file
+// replacement observable even when the configured file is currently absent.
 func (w *Watcher) syncModelOverlay(path string) {
 	if w == nil {
 		return
@@ -26,21 +27,31 @@ func (w *Watcher) syncModelOverlay(path string) {
 	w.clientsMutex.Unlock()
 
 	if w.watcher != nil {
-		if previous != "" && previous != path {
-			if errRemove := w.watcher.Remove(previous); errRemove != nil {
-				log.Debugf("failed to stop watching model overlay file %s: %v", previous, errRemove)
+		previousDir := modelOverlayWatchDir(previous)
+		watchDir := modelOverlayWatchDir(path)
+		if previousDir != "" && previousDir != watchDir && w.normalizeAuthPath(previousDir) != w.normalizeAuthPath(w.authDir) {
+			if errRemove := w.watcher.Remove(previousDir); errRemove != nil {
+				log.Debugf("failed to stop watching model overlay directory %s: %v", previousDir, errRemove)
 			}
 		}
-		if path != "" {
-			if errAdd := w.watcher.Add(path); errAdd != nil {
-				log.Warnf("failed to watch model overlay file %s: %v", path, errAdd)
+		if watchDir != "" {
+			if errAdd := w.watcher.Add(watchDir); errAdd != nil {
+				log.Warnf("failed to watch model overlay directory %s: %v", watchDir, errAdd)
 			} else {
-				log.Debugf("watching model overlay file: %s", path)
+				log.Debugf("watching model overlay directory: %s", watchDir)
 			}
 		}
 	}
 
 	w.applyModelOverlay(path)
+}
+
+func modelOverlayWatchDir(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Clean(path))
 }
 
 // applyModelOverlay re-reads the overlay file and notifies model consumers when the
