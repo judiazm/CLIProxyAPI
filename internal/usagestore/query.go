@@ -3,6 +3,7 @@ package usagestore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -28,7 +29,7 @@ type RequestsResult struct {
 }
 
 // Requests returns the newest matching rows, ordered by ts_ms DESC then id DESC.
-// A non-nil before restricts the page to rows with a smaller id, acting as a cursor.
+// A non-nil before uses that row's timestamp and id as the page cursor.
 func (s *Store) Requests(ctx context.Context, filter Filter, limit int, before *int64, loc *time.Location) (*RequestsResult, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("usagestore: store unavailable")
@@ -40,10 +41,19 @@ func (s *Store) Requests(ctx context.Context, filter Filter, limit int, before *
 		limit = 1
 	}
 
+	result := &RequestsResult{Rows: make([]*Row, 0, limit)}
 	predicate, args := filter.where()
 	if before != nil {
-		predicate += " AND id < ?"
-		args = append(args, *before)
+		var cursorTsMs int64
+		errCursor := s.db.QueryRowContext(ctx, "SELECT ts_ms FROM usage_requests WHERE id = ?", *before).Scan(&cursorTsMs)
+		if errors.Is(errCursor, sql.ErrNoRows) {
+			return result, nil
+		}
+		if errCursor != nil {
+			return nil, fmt.Errorf("usagestore: resolve requests cursor: %w", errCursor)
+		}
+		predicate += " AND (ts_ms < ? OR (ts_ms = ? AND id < ?))"
+		args = append(args, cursorTsMs, cursorTsMs, *before)
 	}
 	query := "SELECT " + strings.Join(rowColumns, ", ") +
 		" FROM usage_requests WHERE " + predicate +
@@ -60,7 +70,6 @@ func (s *Store) Requests(ctx context.Context, filter Filter, limit int, before *
 		}
 	}()
 
-	result := &RequestsResult{Rows: make([]*Row, 0, limit)}
 	for sqlRows.Next() {
 		row := &Row{}
 		var stream, generate, failed int64
