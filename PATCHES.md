@@ -353,3 +353,20 @@ Files: `sdk/cliproxy/auth/conductor_cooldown.go` and
 
 The Vostro updater checks that both tests exist and pass before accepting an update. Keep this
 coverage if upstream later supplies equivalent behavior.
+
+## Patch 7: exclude Codex client cancellations from auth failures
+
+Problem: after a Codex stream had delivered its first payload, canceling the client request could
+produce a trailing `context.Canceled` chunk. The stream wrapper counted that client-originated
+cancellation as an auth failure, inflating the Auth Files failure counter and failure-rate strip.
+
+Change: when both the Codex request context and trailing stream error are `context.Canceled`, stop
+forwarding without recording success or failure. Real upstream errors still record failures and
+cooldowns even when client cancellation coincides with them; normal stream completion still records
+success.
+
+Files: `sdk/cliproxy/auth/conductor_stream.go` and
+`sdk/cliproxy/auth/conductor_codex_cancellation_test.go`. Required regression tests:
+`TestManagerCodexStreamTailCancellationDoesNotCountFailure`,
+`TestManagerCodexStreamUpstreamFailureStillCountsAfterClientCancellation`, and
+`TestManagerCodexStreamSuccessfulCompletionStillCountsSuccess`.
