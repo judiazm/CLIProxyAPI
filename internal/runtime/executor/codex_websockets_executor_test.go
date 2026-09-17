@@ -2855,6 +2855,7 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_Sessionless(t *testing.T) {
 	serverPongCh := make(chan string, 1)
 	inWriteHook := make(chan struct{})
 	pongDeliveredDuringWrite := make(chan struct{})
+	payloadRead := make(chan struct{})
 
 	testWebsocketWritePayloadHook = func(conn *websocket.Conn) {
 		close(inWriteHook)
@@ -2880,11 +2881,10 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_Sessionless(t *testing.T) {
 		})
 
 		go func() {
-			for {
-				if _, _, errRead := conn.ReadMessage(); errRead != nil {
-					return
-				}
+			if _, _, errRead := conn.ReadMessage(); errRead != nil {
+				return
 			}
+			close(payloadRead)
 		}()
 
 		// Wait until client has entered writeMessage on sessionless path.
@@ -2907,6 +2907,14 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_Sessionless(t *testing.T) {
 			close(pongDeliveredDuringWrite)
 		case <-time.After(2 * time.Second):
 			t.Errorf("pong was not received while payload write was in progress on sessionless connection")
+			return
+		}
+
+		// Do not complete the response until the released payload write reaches the server.
+		select {
+		case <-payloadRead:
+		case <-time.After(2 * time.Second):
+			t.Errorf("timed out waiting for the client payload after pong delivery")
 			return
 		}
 
