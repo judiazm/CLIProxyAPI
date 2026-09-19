@@ -11,8 +11,11 @@ import (
 
 // IsClaudeMCPToolName reports whether name follows Claude Code's MCP tool
 // convention and contains only characters accepted by Anthropic tool names.
+// The Messages API accepts tool names up to 128 characters (tools[].name
+// maxLength 128). Claude Code emits MCP names past 64, for example the
+// claude.ai connector tools, so a shorter cap would alias native names.
 func IsClaudeMCPToolName(name string) bool {
-	if len(name) == 0 || len(name) > 64 || !strings.HasPrefix(name, "mcp__") {
+	if len(name) == 0 || len(name) > 128 || !strings.HasPrefix(name, "mcp__") {
 		return false
 	}
 	rest := strings.TrimPrefix(name, "mcp__")

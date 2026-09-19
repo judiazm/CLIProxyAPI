@@ -1670,6 +1670,20 @@ func remapOAuthToolNamesWithBatchedEdits(body []byte, mcpAliases claudeMCPAliasO
 						}
 						recordRename(toolName, newName)
 					}
+				case "tool_addition", "tool_removal":
+					// Mid-conversation tool changes (inline-tools beta) carry
+					// {"tool":{"type":"tool_reference","name":...}} or a full tool
+					// definition under "tool". The name must match tools[] after
+					// aliasing or the API rejects the block as an unknown tool.
+					nameResult := part.Get("tool.name")
+					toolName := nameResult.String()
+					if newName, renamed := rewriteName(toolName); renamed {
+						if !appendStringEdit(nameResult, newName) {
+							validOffsets = false
+							return false
+						}
+						recordRename(toolName, newName)
+					}
 				case "tool_result":
 					nestedContent := part.Get("content")
 					if nestedContent.Exists() && nestedContent.IsArray() {
@@ -1916,6 +1930,13 @@ func remapOAuthToolNamesWithOptionsLegacy(body []byte, mcpAliases claudeMCPAlias
 					toolName := part.Get("tool_name").String()
 					if newName, renamed := rewriteName(toolName); renamed {
 						path := fmt.Sprintf("messages.%d.content.%d.tool_name", msgIndex.Int(), contentIndex.Int())
+						body, _ = sjson.SetBytes(body, path, newName)
+						recordRename(toolName, newName)
+					}
+				case "tool_addition", "tool_removal":
+					toolName := part.Get("tool.name").String()
+					if newName, renamed := rewriteName(toolName); renamed {
+						path := fmt.Sprintf("messages.%d.content.%d.tool.name", msgIndex.Int(), contentIndex.Int())
 						body, _ = sjson.SetBytes(body, path, newName)
 						recordRename(toolName, newName)
 					}
