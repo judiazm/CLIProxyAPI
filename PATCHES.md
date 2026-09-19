@@ -370,3 +370,27 @@ Files: `sdk/cliproxy/auth/conductor_stream.go` and
 `TestManagerCodexStreamTailCancellationDoesNotCountFailure`,
 `TestManagerCodexStreamUpstreamFailureStillCountsAfterClientCancellation`, and
 `TestManagerCodexStreamSuccessfulCompletionStillCountsSuccess`.
+
+## Patch 8: MCP names up to 128 chars, tool names remapped inside tool_addition/tool_removal blocks
+
+Problem (reproduced live 2026-09-19 through the Mac claude-route relay): the first Messages call of a
+Claude Code session where a claude.ai connector added tools mid-conversation came back from Anthropic
+with `400 messages.N.content.M: tool_addition/tool_removal references unknown tool
+'mcp__claude_ai_Adobe_for_creativity__create_visual_design_express_skill'`. Claude Code retried
+without the capability, costing a round trip per session and mid-conversation tool announcements for
+the rest of it. Two causes: `helps.IsClaudeMCPToolName` capped names at 64 characters, so that 72-char
+native MCP name was treated as a third-party tool and aliased in `tools[]`; and
+`remapOAuthToolNames` rewrote `tools[]`, `tool_choice`, `tool_use`, `tool_reference` and nested
+references but not the `{"type":"tool_addition","tool":{"type":"tool_reference","name":...}}`
+blocks in role=system messages, so the reference no longer matched the aliased declaration.
+
+Change: `IsClaudeMCPToolName` accepts up to 128 characters, the Messages API `tools[].name` limit
+(generated aliases stay within 64). Both remap paths (batched edits and legacy) rewrite `tool.name`
+inside `tool_addition` and `tool_removal` blocks with the same alias map, for the `tool_reference`
+form and the full-definition form. Regression: `TestRemapOAuthToolNamesRewritesToolAdditionAndRemovalBlocks`
+(`claude_executor_test.go`) covers both paths, plus the 72-char name in `TestIsClaudeMCPToolName`.
+
+Verification: replaying a captured Claude Code request (18 tools, six `tool_addition` blocks) through
+the proxy with Claude Code's own `anthropic-beta` list returned 400 before and 200 after; a fresh
+`claude-px` session shows no 400 in `~/Library/Logs/claude-relay.log`. On rebase, check whether
+upstream has raised the cap or added the `tool_addition` case; drop this patch when both are present.

@@ -9327,3 +9327,61 @@ func TestClaudeExecutor_CloakModePrefersStoredPrevReqOverCallerFake(t *testing.T
 		t.Fatalf("CPA must not use fake caller cc_prev_req, got: %s", turn2System)
 	}
 }
+
+// Mid-conversation tool changes reference tools by name inside role=system
+// tool_addition/tool_removal blocks. Every alias applied to tools[] has to be
+// applied there too, and native MCP names past 64 characters (claude.ai
+// connector tools) must not be aliased at all. Reproduced live on 2026-09-19:
+// "tool_addition/tool_removal references unknown tool 'mcp__claude_ai_Adobe...'".
+func TestRemapOAuthToolNamesRewritesToolAdditionAndRemovalBlocks(t *testing.T) {
+	const longMCP = "mcp__claude_ai_Adobe_for_creativity__create_visual_design_express_skill"
+	if len(longMCP) <= 64 {
+		t.Fatalf("fixture must exceed 64 characters, got %d", len(longMCP))
+	}
+	input := []byte(`{"model":"claude-fable-5-1","tools":[{"name":"` + longMCP + `","description":"d","input_schema":{"type":"object"},"defer_loading":true},{"name":"deploy","description":"d","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"system","content":[{"type":"text","text":"tools changed"},{"type":"tool_addition","tool":{"type":"tool_reference","name":"` + longMCP + `"}},{"type":"tool_addition","tool":{"type":"tool_reference","name":"deploy"},"cache_control":{"type":"ephemeral"}},{"type":"tool_removal","tool":{"type":"tool_reference","name":"deploy"}},{"type":"tool_addition","tool":{"name":"deploy","description":"full definition","input_schema":{"type":"object"}}}]}]}`)
+	for _, tc := range []struct {
+		name string
+		run  func([]byte) ([]byte, map[string]string)
+	}{
+		{"batched", func(b []byte) ([]byte, map[string]string) {
+			out, rev, ok := remapOAuthToolNamesWithBatchedEdits(b, claudeMCPAliasOptions{secret: "s"})
+			if !ok {
+				t.Fatal("batched remap fell back")
+			}
+			return out, rev
+		}},
+		{"legacy", func(b []byte) ([]byte, map[string]string) {
+			return remapOAuthToolNamesWithOptionsLegacy(b, claudeMCPAliasOptions{secret: "s"})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, reverse := tc.run(input)
+			if !gjson.ValidBytes(out) {
+				t.Fatalf("output is not valid JSON: %s", out)
+			}
+			if got := gjson.GetBytes(out, "tools.0.name").String(); got != longMCP {
+				t.Fatalf("72-char MCP name was aliased to %q", got)
+			}
+			deployAlias := gjson.GetBytes(out, "tools.1.name").String()
+			if deployAlias == "deploy" || deployAlias == "" {
+				t.Fatalf("client tool was not aliased: %q", deployAlias)
+			}
+			if reverse[deployAlias] != "deploy" {
+				t.Fatalf("reverse map missing alias %q: %v", deployAlias, reverse)
+			}
+			want := []string{"", longMCP, deployAlias, deployAlias, deployAlias}
+			gjson.GetBytes(out, "messages.1.content").ForEach(func(i, part gjson.Result) bool {
+				if i.Int() == 0 {
+					return true
+				}
+				if got := part.Get("tool.name").String(); got != want[i.Int()] {
+					t.Fatalf("messages.1.content.%d tool.name = %q, want %q", i.Int(), got, want[i.Int()])
+				}
+				return true
+			})
+			if gjson.GetBytes(out, "messages.1.content.2.cache_control.type").String() != "ephemeral" {
+				t.Fatal("cache_control on the tool_addition block was lost")
+			}
+		})
+	}
+}

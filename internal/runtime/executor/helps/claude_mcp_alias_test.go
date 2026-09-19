@@ -12,6 +12,7 @@ func TestIsClaudeMCPToolName(t *testing.T) {
 		"mcp__context7__query-docs",
 		"mcp__amber_cedar__quiet_harbor",
 		"mcp__server__tool__variant",
+		"mcp__claude_ai_Adobe_for_creativity__create_visual_design_express_skill", // 72 chars, a real claude.ai connector tool
 	} {
 		if !IsClaudeMCPToolName(name) {
 			t.Fatalf("IsClaudeMCPToolName(%q) = false, want true", name)
@@ -22,7 +23,7 @@ func TestIsClaudeMCPToolName(t *testing.T) {
 		"mcp____query-docs",
 		"mcp__context7__",
 		"mcp__context7__query.docs",
-		"mcp__context7__" + strings.Repeat("x", 64),
+		"mcp__context7__" + strings.Repeat("x", 128),
 	} {
 		if IsClaudeMCPToolName(name) {
 			t.Fatalf("IsClaudeMCPToolName(%q) = true, want false", name)
